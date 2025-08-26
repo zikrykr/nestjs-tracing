@@ -1,6 +1,6 @@
 {
   "name": "@zikrykr/ce-service-core",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A lightweight NestJS utility package that provides tracing and Teams alerting via decorators with zero code changes",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
