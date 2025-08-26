@@ -575,7 +575,8 @@ export function Trace(options?: TraceOptions | string) {
           bodyString = body;
         } else if (typeof body === 'object') {
           try {
-            bodyString = JSON.stringify(body);
+            // Use safe serialization to handle circular references
+            bodyString = this.safeStringify(body);
           } catch {
             bodyString = String(body);
           }
@@ -656,6 +657,107 @@ export function Trace(options?: TraceOptions | string) {
           sanitized = sanitized.replace(regex, `"${field}": "[REDACTED]"`);
         }
         return sanitized;
+      };
+    }
+
+    // Safe serialization helper to handle circular references
+    if (!target.safeStringify) {
+      target.safeStringify = function (obj: any, maxDepth: number = 3): string {
+        const seen = new WeakSet();
+
+        const safeSerialize = (value: any, depth: number = 0): any => {
+          // Prevent infinite recursion
+          if (depth > maxDepth) {
+            return '[MAX_DEPTH_REACHED]';
+          }
+
+          // Handle circular references
+          if (value && typeof value === 'object') {
+            if (seen.has(value)) {
+              return '[CIRCULAR_REFERENCE]';
+            }
+            seen.add(value);
+          }
+
+          // Handle different types safely
+          if (value === null) return null;
+          if (value === undefined) return undefined;
+          if (typeof value === 'string') return value;
+          if (typeof value === 'number') return value;
+          if (typeof value === 'boolean') return value;
+          if (typeof value === 'function') return '[FUNCTION]';
+          if (typeof value === 'symbol') return '[SYMBOL]';
+
+          // Handle Date objects
+          if (value instanceof Date) return value.toISOString();
+
+          // Handle Buffer objects
+          if (Buffer.isBuffer(value)) return `[BUFFER:${value.length}bytes]`;
+
+          // Handle arrays
+          if (Array.isArray(value)) {
+            return value.map((item) => safeSerialize(item, depth + 1));
+          }
+
+          // Handle objects
+          if (typeof value === 'object') {
+            try {
+              // Check for common problematic objects
+              if (value.constructor && value.constructor.name) {
+                const constructorName = value.constructor.name;
+                if (
+                  [
+                    'Request',
+                    'Response',
+                    'Socket',
+                    'Agent',
+                    'ClientRequest',
+                    'IncomingMessage',
+                  ].includes(constructorName)
+                ) {
+                  return `[${constructorName}]`;
+                }
+              }
+
+              // Try to extract safe properties
+              const safeObj: any = {};
+              for (const [key, val] of Object.entries(value)) {
+                // Skip problematic properties
+                if (
+                  [
+                    'socket',
+                    'agent',
+                    '_httpMessage',
+                    'req',
+                    'res',
+                    'connection',
+                  ].includes(key)
+                ) {
+                  safeObj[key] = '[SKIPPED]';
+                  continue;
+                }
+
+                try {
+                  safeObj[key] = safeSerialize(val, depth + 1);
+                } catch {
+                  safeObj[key] = '[SERIALIZATION_ERROR]';
+                }
+              }
+              return safeObj;
+            } catch {
+              return '[OBJECT_SERIALIZATION_ERROR]';
+            }
+          }
+
+          return String(value);
+        };
+
+        try {
+          const safeObj = safeSerialize(obj);
+          return JSON.stringify(safeObj, null, 2);
+        } catch (error) {
+          return `[SERIALIZATION_ERROR: ${error.message}]`;
+        }
       };
     }
 

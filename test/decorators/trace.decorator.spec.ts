@@ -374,4 +374,235 @@ describe('Trace Decorators', () => {
       // The decorator should have truncated the body
     });
   });
+
+  describe('safeStringify functionality', () => {
+    let decorator: any;
+    let target: any;
+    let propertyName: string;
+    let descriptor: any;
+    let safeStringify: any;
+
+    beforeEach(() => {
+      decorator = Trace();
+      target = {};
+      propertyName = 'testMethod';
+      descriptor = {
+        value: jest.fn(),
+        configurable: true,
+        enumerable: true,
+        writable: true,
+      };
+
+      decorator(target, propertyName, descriptor);
+      safeStringify = target.safeStringify;
+    });
+
+    it('should handle primitive types correctly', () => {
+      expect(safeStringify('string')).toBe('"string"');
+      expect(safeStringify(123)).toBe('123');
+      expect(safeStringify(true)).toBe('true');
+      expect(safeStringify(null)).toBe('null');
+      expect(safeStringify(undefined)).toBe(undefined);
+    });
+
+    it('should handle simple objects', () => {
+      const obj = { name: 'John', age: 30 };
+      const result = safeStringify(obj);
+      expect(result).toContain('"name": "John"');
+      expect(result).toContain('"age": 30');
+    });
+
+    it('should handle arrays', () => {
+      const arr = [1, 2, { name: 'John' }];
+      const result = safeStringify(arr);
+      expect(result).toContain('1');
+      expect(result).toContain('2');
+      expect(result).toContain('"name": "John"');
+    });
+
+    it('should handle Date objects', () => {
+      const date = new Date('2023-01-01T00:00:00.000Z');
+      const result = safeStringify(date);
+      expect(result).toBe('"2023-01-01T00:00:00.000Z"');
+    });
+
+    it('should handle Buffer objects', () => {
+      const buffer = Buffer.from('test');
+      const result = safeStringify(buffer);
+      expect(result).toBe('"[BUFFER:4bytes]"');
+    });
+
+    it('should handle functions', () => {
+      const func = () => 'test';
+      const result = safeStringify(func);
+      expect(result).toBe('"[FUNCTION]"');
+    });
+
+    it('should handle symbols', () => {
+      const sym = Symbol('test');
+      const result = safeStringify(sym);
+      expect(result).toBe('"[SYMBOL]"');
+    });
+
+    it('should detect and handle circular references', () => {
+      const obj: any = { name: 'John' };
+      obj.self = obj; // Create circular reference
+
+      const result = safeStringify(obj);
+      expect(result).toContain('"name": "John"');
+      expect(result).toContain('"self": "[CIRCULAR_REFERENCE]"');
+    });
+
+    it('should handle nested circular references', () => {
+      const obj: any = { name: 'John' };
+      const nested: any = { parent: obj };
+      obj.child = nested;
+      nested.self = nested; // Another circular reference
+
+      const result = safeStringify(obj);
+      expect(result).toContain('"name": "John"');
+      expect(result).toContain('"child"');
+      expect(result).toContain('"parent": "[CIRCULAR_REFERENCE]"');
+      expect(result).toContain('"self": "[CIRCULAR_REFERENCE]"');
+    });
+
+    it('should respect maxDepth parameter', () => {
+      const deepObj = {
+        level1: {
+          level2: {
+            level3: {
+              level4: {
+                level5: 'too deep',
+              },
+            },
+          },
+        },
+      };
+
+      const result = safeStringify(deepObj, 2);
+      expect(result).toContain('"level1"');
+      expect(result).toContain('"level2"');
+      expect(result).toContain('"level3": "[MAX_DEPTH_REACHED]"');
+    });
+
+    it('should handle problematic HTTP objects', () => {
+      // Mock problematic objects
+      const mockRequest = {
+        body: { userId: '123' },
+        method: 'POST',
+        url: '/users',
+        socket: { someProperty: 'value' },
+        agent: { someProperty: 'value' },
+        _httpMessage: { someProperty: 'value' },
+      };
+
+      const result = safeStringify(mockRequest);
+      expect(result).toContain('"body"');
+      expect(result).toContain('"userId": "123"');
+      expect(result).toContain('"method": "POST"');
+      expect(result).toContain('"url": "/users"');
+      expect(result).toContain('"socket": "[SKIPPED]"');
+      expect(result).toContain('"agent": "[SKIPPED]"');
+      expect(result).toContain('"_httpMessage": "[SKIPPED]"');
+    });
+
+    it('should handle objects with problematic constructor names', () => {
+      const mockObjects = [
+        { constructor: { name: 'Request' } },
+        { constructor: { name: 'Response' } },
+        { constructor: { name: 'Socket' } },
+        { constructor: { name: 'Agent' } },
+        { constructor: { name: 'ClientRequest' } },
+        { constructor: { name: 'IncomingMessage' } },
+      ];
+
+      mockObjects.forEach((obj) => {
+        const result = safeStringify(obj);
+        expect(result).toMatch(/^"\[.*\]"$/);
+      });
+    });
+
+    it('should handle serialization errors gracefully', () => {
+      // Create an object that will cause JSON.stringify to fail
+      const problematicObj = {
+        get circular() {
+          return this;
+        },
+        get problematic() {
+          throw new Error('Serialization error');
+        },
+      };
+
+      const result = safeStringify(problematicObj);
+      expect(result).toContain('[OBJECT_SERIALIZATION_ERROR]');
+    });
+
+    it('should handle objects with getters that throw errors', () => {
+      const obj = {
+        normal: 'value',
+        get problematic() {
+          throw new Error('Getter error');
+        },
+      };
+
+      const result = safeStringify(obj);
+      // The object might fail to serialize entirely due to the problematic getter
+      expect(result).toContain('[OBJECT_SERIALIZATION_ERROR]');
+    });
+
+    it('should handle mixed object types safely', () => {
+      const mixedObj = {
+        string: 'test',
+        number: 123,
+        boolean: true,
+        null: null,
+        undefined: undefined,
+        date: new Date('2023-01-01'),
+        buffer: Buffer.from('test'),
+        function: () => 'test',
+        symbol: Symbol('test'),
+        array: [1, 2, 3],
+        object: { nested: 'value' },
+        circular: null as any,
+      };
+
+      // Create circular reference
+      mixedObj.circular = mixedObj;
+
+      const result = safeStringify(mixedObj);
+      expect(result).toContain('"string": "test"');
+      expect(result).toContain('"number": 123');
+      expect(result).toContain('"boolean": true');
+      expect(result).toContain('"null": null');
+      // undefined properties are typically omitted from JSON
+      expect(result).toContain('"date": "2023-01-01T00:00:00.000Z"');
+      expect(result).toContain('"buffer": "[BUFFER:4bytes]"');
+      expect(result).toContain('"function": "[FUNCTION]"');
+      expect(result).toContain('"symbol": "[SYMBOL]"');
+      expect(result).toContain('"array"');
+      expect(result).toContain('1');
+      expect(result).toContain('2');
+      expect(result).toContain('3');
+      expect(result).toContain('"object"');
+      expect(result).toContain('"nested": "value"');
+      expect(result).toContain('"circular": "[CIRCULAR_REFERENCE]"');
+    });
+
+    it('should handle empty objects and arrays', () => {
+      expect(safeStringify({})).toBe('{}');
+      expect(safeStringify([])).toBe('[]');
+      expect(safeStringify(null)).toBe('null');
+    });
+
+    it('should handle objects with undefined values', () => {
+      const obj = {
+        defined: 'value',
+        undefined: undefined,
+      };
+
+      const result = safeStringify(obj);
+      expect(result).toContain('"defined": "value"');
+      // undefined properties are typically omitted from JSON
+    });
+  });
 }); 
