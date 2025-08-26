@@ -351,62 +351,69 @@ export function Trace(options?: TraceOptions | string) {
       });
     };
 
-    // Add unified alert method to the decorated function
-    descriptor.value.sendUnifiedAlert = async function (
-      span: any,
-      error: any,
-      options: TraceOptions,
-      className: string,
-      methodName: string,
-    ): Promise<void> {
-      try {
-        // Try to get UnifiedAlertService from the instance
-        const unifiedAlertService = (this as any).unifiedAlertService;
+    // Add unified alert method to the class instance (target)
+    if (!target.sendUnifiedAlert) {
+      target.sendUnifiedAlert = async function (
+        span: any,
+        error: any,
+        options: TraceOptions,
+        className: string,
+        methodName: string,
+      ): Promise<void> {
+        try {
+          // Try to get UnifiedAlertService from the instance
+          const unifiedAlertService = (this as any).unifiedAlertService;
 
-        if (!unifiedAlertService) {
-          logger.warn('UnifiedAlertService not available, skipping alert');
-          return;
+          if (!unifiedAlertService) {
+            logger.warn('UnifiedAlertService not available, skipping alert');
+            return;
+          }
+
+          const spanContext = span.spanContext();
+          const traceId = spanContext.traceId;
+          const spanId = spanContext.spanId;
+
+          // Extract context from span attributes
+          const userContext = this.extractUserContext(span, options);
+          const httpContext = this.extractHttpContext(span, options);
+
+          const alertData: ErrorAlertData = {
+            error,
+            traceId,
+            spanId,
+            serviceName: className,
+            methodName,
+            ...userContext,
+            ...httpContext,
+            additionalContext: {
+              spanName: span.name,
+              spanStartTime: span.startTime?.toString(),
+              severity: options.severity,
+              businessImpact: options.businessImpact,
+              userAffected: options.userAffected,
+              ...options.customContext,
+            },
+          };
+
+          // Determine if this is a critical error
+          const isCritical = this.isCriticalError(error, options);
+
+          if (isCritical && options.alertOnCriticalError) {
+            await unifiedAlertService.sendCriticalErrorAlert(alertData);
+            logger.log(
+              `Critical error alert sent via UnifiedAlertService for ${className}.${methodName}`,
+            );
+          } else if (options.alertOnError) {
+            await unifiedAlertService.sendErrorAlert(alertData);
+            logger.log(
+              `Error alert sent via UnifiedAlertService for ${className}.${methodName}`,
+            );
+          }
+        } catch (alertError) {
+          logger.error('Failed to send unified alert:', alertError);
         }
-
-        const spanContext = span.spanContext();
-        const traceId = spanContext.traceId;
-        const spanId = spanContext.spanId;
-
-        // Extract context from span attributes
-        const userContext = this.extractUserContext(span, options);
-        const httpContext = this.extractHttpContext(span, options);
-
-        const alertData: ErrorAlertData = {
-          error,
-          traceId,
-          spanId,
-          serviceName: className,
-          methodName,
-          ...userContext,
-          ...httpContext,
-          additionalContext: {
-            spanName: span.name,
-            spanStartTime: span.startTime?.toString(),
-            spanEndTime: span.endTime?.toString(),
-            severity: options.severity,
-            businessImpact: options.businessImpact,
-            userAffected: options.userAffected,
-            ...options.customContext,
-          },
-        };
-
-        // Determine if this is a critical error
-        const isCritical = this.isCriticalError(error, options);
-
-        if (isCritical && options.alertOnCriticalError) {
-          await unifiedAlertService.sendCriticalErrorAlert(alertData);
-        } else if (options.alertOnError) {
-          await unifiedAlertService.sendErrorAlert(alertData);
-        }
-      } catch (alertError) {
-        logger.error('Failed to send unified alert:', alertError);
-      }
-    };
+      };
+    }
 
     // Add helper methods to the class instance (target) instead of descriptor.value
     if (!target.extractUserContext) {

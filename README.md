@@ -21,42 +21,19 @@ npm install @ce-service/core
 yarn add @ce-service/core
 ```
 
-### 2. Setup Service (Core Infrastructure)
+### 2. Setup Alert Module (Core Infrastructure)
 
 ```typescript
 // app.module.ts - minimal changes
 import { Module } from '@nestjs/common';
-import { 
-  TeamsAlertService, 
-  SlackAlertService, 
-  GoogleChatAlertService,
-  UnifiedAlertService 
-} from '@ce-service/core';
+import { AlertModule } from '@ce-service/core';
 
 @Module({
   imports: [
     // ... your existing imports stay exactly the same
+    AlertModule, // ← Add this line
   ],
-  providers: [
-    // ... your existing providers stay exactly the same
-    
-    // Choose your alert provider(s):
-    TeamsAlertService,     // Microsoft Teams
-    SlackAlertService,     // Slack
-    GoogleChatAlertService, // Google Chat
-    
-    // Or use the unified service (recommended):
-    {
-      provide: UnifiedAlertService,
-      useFactory: (teams, slack, googleChat) => 
-        new UnifiedAlertService([teams, slack, googleChat]),
-      inject: [TeamsAlertService, SlackAlertService, GoogleChatAlertService],
-    },
-  ],
-  exports: [
-    // ... your existing exports stay exactly the same
-    UnifiedAlertService, // or individual providers
-  ],
+  // ... rest of your module config stays the same
 })
 export class AppModule {}
 ```
@@ -153,7 +130,7 @@ async customMethod() { /* ... */ }
   includeRequestBody: true,      // Capture request.body
   includeResponseBody: true,     // Capture response.body  
   includeErrorBody: true,        // Capture error.body
-  maxBodySize: 2000,            // Max body size to capture
+  maxBodySize: 10000,           // Max body size to capture (default: 10KB)
   sensitiveFields: ['password', 'token', 'secret'] // Fields to redact
 })
 async criticalMethod() { /* ... */ }
@@ -164,7 +141,7 @@ async criticalMethod() { /* ... */ }
 - **Response Body**: Captures method return values and response data
 - **Error Body**: Extracts error details and context
 - **Smart Sanitization**: Automatically redacts sensitive fields (passwords, tokens, etc.)
-- **Size Control**: Configurable maximum body size with truncation
+- **Size Control**: Configurable maximum body size with truncation (default: 10KB)
 - **Multiple Formats**: Handles JSON, objects, strings, and various data structures
 
 ### `@TraceAsync()` - Async Operations
@@ -179,16 +156,13 @@ async asyncMethod() { /* ... */ }
 ### OpenTelemetry Configuration
 ```typescript
 interface OpenTelemetryConfig {
-  serviceName: string;
-  environment: string;
-  otlpEndpoint: string;
-  serviceVersion?: string;
-  otlpHeaders?: string;
+  serviceName?: string;      // Optional - defaults to SERVICE_NAME or APP_NAME env var
+  environment?: string;      // Optional - defaults to NODE_ENV or ENVIRONMENT env var
+  otlpEndpoint?: string;    // Optional - defaults to OTLP_ENDPOINT env var
+  serviceVersion?: string;  // Optional - defaults to SERVICE_VERSION env var
+  otlpHeaders?: string;     // Optional - defaults to OTLP_HEADERS env var
 }
 ```
-
-### Teams Alerting Configuration
-The `TeamsAlertService` automatically reads from environment variables:
 
 ### Body Capture Configuration
 The `@Trace` decorator automatically captures request/response/error bodies with smart sanitization:
@@ -199,87 +173,10 @@ interface TraceOptions {
   includeRequestBody?: boolean;    // Capture request.body, data, payload, etc.
   includeResponseBody?: boolean;   // Capture method return values
   includeErrorBody?: boolean;      // Capture error details
-  maxBodySize?: number;           // Maximum body size (default: 1000 chars)
+  maxBodySize?: number;           // Maximum body size (default: 10000 chars)
   sensitiveFields?: string[];     // Fields to redact (default: password, token, secret, key, authorization)
 }
 ```
-
-```typescript
-// Environment variables (set in .env file or system)
-TEAMS_WEBHOOK_URL=https://your-webhook-url
-JAEGER_BASE_URL=https://your-jaeger-url
-APP_NAME=my-service
-NODE_ENV=production
-```
-
-### Setup Examples
-
-```typescript
-// Minimal setup - just add TeamsAlertService to your module
-@Module({
-  providers: [
-    // ... your existing providers
-    TeamsAlertService, // add this line
-  ],
-  exports: [TeamsAlertService],
-})
-export class AppModule {}
-
-// OpenTelemetry setup in main.ts
-setupOpenTelemetry({
-  serviceName: 'my-service',
-  environment: 'production',
-  otlpEndpoint: 'http://localhost:4318/v1/traces'
-});
-
-// Environment variables for Teams alerts
-TEAMS_WEBHOOK_URL=https://your-webhook-url
-JAEGER_BASE_URL=https://your-jaeger-url
-APP_NAME=my-service
-NODE_ENV=production
-```
-
-## 📱 **Alerting Features**
-
-When errors occur, you automatically get:
-- 🚨 Error details and stack trace
-- 🔍 Direct link to Jaeger trace
-- 👤 User context (if available)
-- 🌐 HTTP context (if available)
-- 📊 Business impact and severity
-- 🕒 Timestamp and duration
-
-## 🔍 **Body Capture Features**
-
-The `@Trace` decorator automatically captures and sanitizes:
-
-```typescript
-@Trace({
-  includeRequestBody: true,
-  includeResponseBody: true,
-  includeErrorBody: true,
-  maxBodySize: 2000,
-  sensitiveFields: ['password', 'apiKey', 'secret']
-})
-async processUser(userData: any) {
-  // Request body automatically captured:
-  // - userData.body (if it's a request object)
-  // - userData.data, userData.payload, etc.
-  
-  const result = await this.userService.create(userData);
-  
-  // Response body automatically captured:
-  // - result object/string
-  
-  return result;
-}
-```
-
-**What Gets Captured:**
-- **Request**: `request.body`, `data`, `payload`, `requestBody`
-- **Response**: Method return values, response objects
-- **Errors**: Error objects, error messages, error context
-- **Smart Detection**: Automatically identifies request/response patterns
 
 ## 🌍 **Environment Variables**
 
@@ -312,6 +209,48 @@ APP_VERSION=1.0.0
 ENVIRONMENT=production
 ```
 
+## 📱 **Alerting Features**
+
+When errors occur, you automatically get:
+- 🚨 Error details and stack trace
+- 🔍 Direct link to Jaeger trace
+- 👤 User context (if available)
+- 🌐 HTTP context (if available)
+- 📊 Business impact and severity
+- 🕒 Timestamp and duration
+
+## 🔍 **Body Capture Features**
+
+The `@Trace` decorator automatically captures and sanitizes:
+
+```typescript
+@Trace({
+  includeRequestBody: true,
+  includeResponseBody: true,
+  includeErrorBody: true,
+  maxBodySize: 20000, // 20KB limit
+  sensitiveFields: ['password', 'apiKey', 'secret']
+})
+async processUser(userData: any) {
+  // Request body automatically captured:
+  // - userData.body (if it's a request object)
+  // - userData.data, userData.payload, etc.
+  
+  const result = await this.userService.create(userData);
+  
+  // Response body automatically captured:
+  // - result object/string
+  
+  return result;
+}
+```
+
+**What Gets Captured:**
+- **Request**: `request.body`, `data`, `payload`, `requestBody`
+- **Response**: Method return values, response objects
+- **Errors**: Error objects, error messages, error context
+- **Smart Detection**: Automatically identifies request/response patterns
+
 ## 📊 **What Gets Captured Automatically**
 
 The decorator automatically captures:
@@ -323,6 +262,14 @@ The decorator automatically captures:
   'method.name': 'findUser',
   'method.args.count': 1,
   'method.arg.0.id': 'user123',
+  
+  // Body capture
+  'request.body': '{"id":"user123","name":"John"}',
+  'request.body.size': 35,
+  'request.body.source': 'arg.1',
+  
+  'response.body': '{"id":"user123","name":"John","email":"john@example.com"}',
+  'response.body.size': 75,
   
   // Alert attributes
   'teams.alert.enabled': true,
@@ -344,35 +291,6 @@ The decorator automatically detects critical errors:
 - **Keywords**: `connection failed`, `authentication failed`, `payment failed`, `critical`, `fatal`
 - **HTTP Status**: 5xx, 401, 403
 
-## 🔧 **Troubleshooting**
-
-### Alerts not working?
-- Verify `TEAMS_WEBHOOK_URL` is set in environment variables
-- Check Teams channel permissions
-- Ensure `TeamsAlertService` is added to your module providers
-
-### Missing context in alerts?
-- Use `customContext` in decorators
-- Ensure method arguments have safe properties (id, type, status, etc.)
-
-### Too many alerts?
-- Use appropriate severity levels
-- Set `alertOnError: false` for specific methods
-
-### TeamsAlertService not found?
-- Make sure `TeamsAlertService` is in your module's providers array
-- No need to install `@nestjs/config` - it reads from `process.env` directly
-
-## 🎉 **Benefits**
-
-- **Core Infrastructure**: Provides essential utilities every production service needs
-- **Zero Business Logic Changes**: Your core business logic remains untouched
-- **Automatic Error Handling**: Teams alerts are sent automatically when errors occur
-- **Rich Context**: Method arguments are automatically captured and included in alerts
-- **Consistent Behavior**: All decorated methods behave the same way
-- **Easy Maintenance**: Infrastructure logic is centralized and reusable
-- **Team Adoption**: Developers can easily add infrastructure capabilities to any method
-
 ## 🔔 **Modular Alerting System**
 
 The alerting system is designed to be completely modular and extensible:
@@ -385,50 +303,28 @@ The alerting system is designed to be completely modular and extensible:
 
 ### **Unified Alert Service**
 
-Use `UnifiedAlertService` to send alerts to ALL configured providers simultaneously:
+The `AlertModule` automatically provides `UnifiedAlertService` that sends alerts to ALL configured providers simultaneously:
 
 ```typescript
-// Sends to all configured providers at once
-const unifiedAlert = app.get(UnifiedAlertService);
-
-// Sends to Teams, Slack, and Google Chat simultaneously
-await unifiedAlert.sendErrorAlert(alertData);
-```
-
-### **Easy to Add New Providers**
-
-Create a new alert provider by implementing the `AlertProvider` interface:
-
-```typescript
+// Inject UnifiedAlertService in your services
 @Injectable()
-export class DiscordAlertService implements AlertProvider {
-  // Implement the required methods
-  async sendErrorAlert(alertData: ErrorAlertData): Promise<void> { /* ... */ }
-  async sendCriticalErrorAlert(alertData: ErrorAlertData): Promise<void> { /* ... */ }
-  async sendBatchErrorAlerts(alerts: ErrorAlertData[]): Promise<void> { /* ... */ }
-  isConfigured(): boolean { /* ... */ }
-  getProviderName(): string { return 'Discord'; }
+export class UserService {
+  constructor(
+    private unifiedAlertService: UnifiedAlertService, // ← Automatically available
+    private userRepository: UserRepository,
+  ) {}
+
+  // Use it manually if needed
+  async handleError(error: Error) {
+    await this.unifiedAlertService.sendErrorAlert({
+      error,
+      serviceName: 'UserService',
+      methodName: 'handleError',
+      context: 'Manual error handling'
+    });
+  }
 }
 ```
-
-### **Environment-Based Configuration**
-
-Set which providers to use via environment variables:
-
-```bash
-# Use Teams
-TEAMS_WEBHOOK_URL=https://your-webhook
-
-# Use Slack
-SLACK_WEBHOOK_URL=https://your-slack-webhook
-
-# Use Google Chat
-GOOGLE_CHAT_WEBHOOK_URL=https://your-google-chat-webhook
-
-# Use multiple providers for redundancy and maximum coverage
-TEAMS_WEBHOOK_URL=https://your-webhook
-SLACK_WEBHOOK_URL=https://your-slack-webhook
-GOOGLE_CHAT_WEBHOOK_URL=https://your-google-chat-webhook
 
 ### **Benefits of Multi-Provider Approach**
 
@@ -438,6 +334,40 @@ GOOGLE_CHAT_WEBHOOK_URL=https://your-google-chat-webhook
 - **📱 Multi-Device**: Alerts appear on Teams, Slack, and Google Chat at the same time
 - **⚡ Parallel Delivery**: All providers are contacted simultaneously, not sequentially
 - **📊 Detailed Logging**: See which providers succeeded and which failed
+
+## 🔧 **Troubleshooting**
+
+### Alerts not working?
+- Verify `TEAMS_WEBHOOK_URL` is set in environment variables
+- Check Teams channel permissions
+- Ensure `AlertModule` is imported in your `AppModule`
+
+### Missing context in alerts?
+- Use `customContext` in decorators
+- Ensure method arguments have safe properties (id, type, status, etc.)
+
+### Too many alerts?
+- Use appropriate severity levels
+- Set `alertOnError: false` for specific methods
+
+### Request body not showing in traces?
+- Ensure `includeRequestBody: true` (enabled by default)
+- Check that your method parameters contain request data
+- The decorator automatically detects `@Body()`, `@Param()`, etc.
+
+### Response body truncated?
+- Increase `maxBodySize` in your `@Trace` options
+- Default is 10KB, you can set it higher: `maxBodySize: 50000`
+
+## 🎉 **Benefits**
+
+- **Core Infrastructure**: Provides essential utilities every production service needs
+- **Zero Business Logic Changes**: Your core business logic remains untouched
+- **Automatic Error Handling**: Teams alerts are sent automatically when errors occur
+- **Rich Context**: Method arguments are automatically captured and included in alerts
+- **Consistent Behavior**: All decorated methods behave the same way
+- **Easy Maintenance**: Infrastructure logic is centralized and reusable
+- **Team Adoption**: Developers can easily add infrastructure capabilities to any method
 
 ## 🤝 **Contributing**
 

@@ -216,7 +216,7 @@ describe('Trace Decorators', () => {
   describe('Decorator functionality', () => {
     it('should add sendUnifiedAlert method to decorated function', () => {
       const decorator = Trace();
-      const target = {};
+      const target: any = {};
       const propertyName = 'testMethod';
       const descriptor = {
         value: jest.fn(),
@@ -227,14 +227,14 @@ describe('Trace Decorators', () => {
 
       const result = decorator(target, propertyName, descriptor);
 
-      // Check that sendUnifiedAlert method was added
-      expect(result.value.sendUnifiedAlert).toBeDefined();
-      expect(typeof result.value.sendUnifiedAlert).toBe('function');
+      // Check that sendUnifiedAlert method was added to the target (class instance)
+      expect(target.sendUnifiedAlert).toBeDefined();
+      expect(typeof target.sendUnifiedAlert).toBe('function');
     });
 
     it('should add helper methods to decorated function', () => {
       const decorator = Trace();
-      const target = {};
+      const target: any = {};
       const propertyName = 'testMethod';
       const descriptor = {
         value: jest.fn(),
@@ -254,8 +254,8 @@ describe('Trace Decorators', () => {
       expect(target).toHaveProperty('sanitizeSensitiveFields');
       expect(target).toHaveProperty('sanitizeString');
 
-      // The descriptor should have the sendUnifiedAlert method
-      expect(descriptor.value).toHaveProperty('sendUnifiedAlert');
+      // The target should have the sendUnifiedAlert method
+      expect(target).toHaveProperty('sendUnifiedAlert');
     });
   });
 
