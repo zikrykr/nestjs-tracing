@@ -243,19 +243,26 @@ describe('Trace Decorators', () => {
         writable: true,
       };
 
-      const result = decorator(target, propertyName, descriptor);
+      decorator(target, propertyName, descriptor);
 
-      // Check that helper methods were added
-      expect(result.value.extractUserContext).toBeDefined();
-      expect(result.value.extractHttpContext).toBeDefined();
-      expect(result.value.isCriticalError).toBeDefined();
+      // Helper methods should be added to the target (class instance)
+      expect(target).toHaveProperty('extractUserContext');
+      expect(target).toHaveProperty('extractHttpContext');
+      expect(target).toHaveProperty('isCriticalError');
+      expect(target).toHaveProperty('isRequestObject');
+      expect(target).toHaveProperty('extractAndSanitizeBody');
+      expect(target).toHaveProperty('sanitizeSensitiveFields');
+      expect(target).toHaveProperty('sanitizeString');
+
+      // The descriptor should have the sendUnifiedAlert method
+      expect(descriptor.value).toHaveProperty('sendUnifiedAlert');
     });
   });
 
   describe('Error classification', () => {
     it('should identify critical errors correctly', () => {
       const decorator = Trace();
-      const target = {};
+      const target: any = {};
       const propertyName = 'testMethod';
       const descriptor = {
         value: jest.fn(),
@@ -264,8 +271,8 @@ describe('Trace Decorators', () => {
         writable: true,
       };
 
-      const result = decorator(target, propertyName, descriptor);
-      const isCriticalError = result.value.isCriticalError;
+      decorator(target, propertyName, descriptor);
+      const isCriticalError = target.isCriticalError;
 
       // Test critical error types
       const criticalError = new Error('Database connection failed');
@@ -287,7 +294,7 @@ describe('Trace Decorators', () => {
 
     it('should identify non-critical errors correctly', () => {
       const decorator = Trace();
-      const target = {};
+      const target: any = {};
       const propertyName = 'testMethod';
       const descriptor = {
         value: jest.fn(),
@@ -296,8 +303,8 @@ describe('Trace Decorators', () => {
         writable: true,
       };
 
-      const result = decorator(target, propertyName, descriptor);
-      const isCriticalError = result.value.isCriticalError;
+      decorator(target, propertyName, descriptor);
+      const isCriticalError = target.isCriticalError;
 
       // Test non-critical error
       const normalError = new Error('User not found');

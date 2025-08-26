@@ -340,232 +340,249 @@ export function Trace(options?: TraceOptions | string) {
       }
     };
 
-    // Add helper methods to the decorated function
-    descriptor.value.extractUserContext = function (
-      span: any,
-      options: TraceOptions,
-    ): { userId?: string; companyId?: string } {
-      if (!options.includeUserContext) return {};
+    // Add helper methods to the class instance (target) instead of descriptor.value
+    if (!target.extractUserContext) {
+      target.extractUserContext = function (
+        span: any,
+        options: TraceOptions,
+      ): { userId?: string; companyId?: string } {
+        if (!options.includeUserContext) return {};
 
-      const attributes = span.attributes || {};
+        const attributes = span.attributes || {};
 
-      return {
-        userId:
-          attributes['user.id'] ||
-          attributes['user_id'] ||
-          attributes['userId'],
-        companyId:
-          attributes['company.id'] ||
-          attributes['company_id'] ||
-          attributes['companyId'],
+        return {
+          userId:
+            attributes['user.id'] ||
+            attributes['user_id'] ||
+            attributes['userId'],
+          companyId:
+            attributes['company.id'] ||
+            attributes['company_id'] ||
+            attributes['companyId'],
+        };
       };
-    };
+    }
 
-    descriptor.value.extractHttpContext = function (
-      span: any,
-      options: TraceOptions,
-    ): { httpMethod?: string; httpUrl?: string } {
-      if (!options.includeHttpContext) return {};
+    if (!target.extractHttpContext) {
+      target.extractHttpContext = function (
+        span: any,
+        options: TraceOptions,
+      ): { httpMethod?: string; httpUrl?: string } {
+        if (!options.includeHttpContext) return {};
 
-      const attributes = span.attributes || {};
+        const attributes = span.attributes || {};
 
-      return {
-        httpMethod: attributes['http.method'],
-        httpUrl: attributes['http.url'],
+        return {
+          httpMethod: attributes['http.method'],
+          httpUrl: attributes['http.url'],
+        };
       };
-    };
+    }
 
-    descriptor.value.isCriticalError = function (
-      error: any,
-      options: TraceOptions,
-    ): boolean {
-      // Check if explicitly marked as critical
-      if (
-        options.severity === 'critical' ||
-        options.businessImpact === 'critical'
-      ) {
-        return true;
-      }
-
-      // Check error type
-      if (error instanceof Error) {
-        const criticalErrorTypes = [
-          'DatabaseConnectionError',
-          'AuthenticationError',
-          'AuthorizationError',
-          'ValidationError',
-          'TimeoutError',
-          'NetworkError',
-          'PaymentProcessingError',
-          'CriticalBusinessError',
-        ];
-
-        if (criticalErrorTypes.includes(error.constructor.name)) {
-          return true;
-        }
-
-        // Check error message for critical keywords
-        const criticalKeywords = [
-          'connection failed',
-          'authentication failed',
-          'authorization failed',
-          'timeout',
-          'network error',
-          'database error',
-          'critical',
-          'fatal',
-          'payment failed',
-          'transaction failed',
-        ];
-
+    if (!target.isCriticalError) {
+      target.isCriticalError = function (
+        error: any,
+        options: TraceOptions,
+      ): boolean {
+        // Check if explicitly marked as critical
         if (
-          criticalKeywords.some((keyword) =>
-            error.message.toLowerCase().includes(keyword),
-          )
+          options.severity === 'critical' ||
+          options.businessImpact === 'critical'
         ) {
           return true;
         }
-      }
 
-      // Check if error has critical indicators
-      if (
-        (error as any).critical === true ||
-        (error as any).severity === 'critical'
-      ) {
-        return true;
-      }
+        // Check error type
+        if (error instanceof Error) {
+          const criticalErrorTypes = [
+            'DatabaseConnectionError',
+            'AuthenticationError',
+            'AuthorizationError',
+            'ValidationError',
+            'TimeoutError',
+            'NetworkError',
+            'PaymentProcessingError',
+            'CriticalBusinessError',
+          ];
 
-      return false;
-    };
+          if (criticalErrorTypes.includes(error.constructor.name)) {
+            return true;
+          }
 
-    // Add body extraction helper methods
-    descriptor.value.isRequestObject = function (obj: any): boolean {
-      // Check if this looks like a request object
-      return (
-        obj &&
-        (obj.body !== undefined ||
-          obj.params !== undefined ||
-          obj.query !== undefined ||
-          obj.headers !== undefined ||
-          obj.method !== undefined ||
-          obj.url !== undefined ||
-          obj.path !== undefined)
-      );
-    };
+          // Check error message for critical keywords
+          const criticalKeywords = [
+            'connection failed',
+            'authentication failed',
+            'authorization failed',
+            'timeout',
+            'network error',
+            'database error',
+            'critical',
+            'fatal',
+            'payment failed',
+            'transaction failed',
+          ];
 
-    descriptor.value.extractAndSanitizeBody = function (
-      obj: any,
-      options: TraceOptions,
-    ): string | null {
-      if (!obj || typeof obj !== 'object') {
-        return null;
-      }
-
-      let body: any = null;
-
-      // Extract body from different possible locations
-      if (obj.body !== undefined) {
-        body = obj.body;
-      } else if (obj.data !== undefined) {
-        body = obj.data;
-      } else if (obj.payload !== undefined) {
-        body = obj.payload;
-      } else if (obj.requestBody !== undefined) {
-        body = obj.requestBody;
-      } else if (obj.responseBody !== undefined) {
-        body = obj.responseBody;
-      } else if (obj.errorBody !== undefined) {
-        body = obj.errorBody;
-      } else {
-        // If no specific body field, try to use the object itself
-        body = obj;
-      }
-
-      if (!body) {
-        return null;
-      }
-
-      // Convert to string if it's not already
-      let bodyString: string;
-      if (typeof body === 'string') {
-        bodyString = body;
-      } else if (typeof body === 'object') {
-        try {
-          bodyString = JSON.stringify(body);
-        } catch {
-          bodyString = String(body);
-        }
-      } else {
-        bodyString = String(body);
-      }
-
-      // Sanitize sensitive fields
-      if (options.sensitiveFields && options.sensitiveFields.length > 0) {
-        try {
-          const bodyObj = JSON.parse(bodyString);
-          const sanitized = this.sanitizeSensitiveFields(
-            bodyObj,
-            options.sensitiveFields,
-          );
-          bodyString = JSON.stringify(sanitized);
-        } catch {
-          // If parsing fails, try to sanitize as string
-          bodyString = this.sanitizeString(bodyString, options.sensitiveFields);
-        }
-      }
-
-      // Truncate if too long
-      if (options.maxBodySize && bodyString.length > options.maxBodySize) {
-        bodyString =
-          bodyString.substring(0, options.maxBodySize) + '... [truncated]';
-      }
-
-      return bodyString;
-    };
-
-    descriptor.value.sanitizeSensitiveFields = function (
-      obj: any,
-      sensitiveFields: string[],
-    ): any {
-      if (Array.isArray(obj)) {
-        return obj.map((item) =>
-          this.sanitizeSensitiveFields(item, sensitiveFields),
-        );
-      }
-
-      if (obj && typeof obj === 'object') {
-        const sanitized: any = {};
-        for (const [key, value] of Object.entries(obj)) {
           if (
-            sensitiveFields.some((field) =>
-              key.toLowerCase().includes(field.toLowerCase()),
+            criticalKeywords.some((keyword) =>
+              error.message.toLowerCase().includes(keyword),
             )
           ) {
-            sanitized[key] = '[REDACTED]';
-          } else {
-            sanitized[key] = this.sanitizeSensitiveFields(
-              value,
-              sensitiveFields,
+            return true;
+          }
+        }
+
+        // Check if error has critical indicators
+        if (
+          (error as any).critical === true ||
+          (error as any).severity === 'critical'
+        ) {
+          return true;
+        }
+
+        return false;
+      };
+    }
+
+    // Add body extraction helper methods to the class instance
+    if (!target.isRequestObject) {
+      target.isRequestObject = function (obj: any): boolean {
+        // Check if this looks like a request object
+        return (
+          obj &&
+          (obj.body !== undefined ||
+            obj.params !== undefined ||
+            obj.query !== undefined ||
+            obj.headers !== undefined ||
+            obj.method !== undefined ||
+            obj.url !== undefined ||
+            obj.path !== undefined)
+        );
+      };
+    }
+
+    if (!target.extractAndSanitizeBody) {
+      target.extractAndSanitizeBody = function (
+        obj: any,
+        options: TraceOptions,
+      ): string | null {
+        if (!obj || typeof obj !== 'object') {
+          return null;
+        }
+
+        let body: any = null;
+
+        // Extract body from different possible locations
+        if (obj.body !== undefined) {
+          body = obj.body;
+        } else if (obj.data !== undefined) {
+          body = obj.data;
+        } else if (obj.payload !== undefined) {
+          body = obj.payload;
+        } else if (obj.requestBody !== undefined) {
+          body = obj.requestBody;
+        } else if (obj.responseBody !== undefined) {
+          body = obj.responseBody;
+        } else if (obj.errorBody !== undefined) {
+          body = obj.errorBody;
+        } else {
+          // If no specific body field, try to use the object itself
+          body = obj;
+        }
+
+        if (!body) {
+          return null;
+        }
+
+        // Convert to string if it's not already
+        let bodyString: string;
+        if (typeof body === 'string') {
+          bodyString = body;
+        } else if (typeof body === 'object') {
+          try {
+            bodyString = JSON.stringify(body);
+          } catch {
+            bodyString = String(body);
+          }
+        } else {
+          bodyString = String(body);
+        }
+
+        // Sanitize sensitive fields
+        if (options.sensitiveFields && options.sensitiveFields.length > 0) {
+          try {
+            const bodyObj = JSON.parse(bodyString);
+            const sanitized = this.sanitizeSensitiveFields(
+              bodyObj,
+              options.sensitiveFields,
+            );
+            bodyString = JSON.stringify(sanitized);
+          } catch {
+            // If parsing fails, try to sanitize as string
+            bodyString = this.sanitizeString(
+              bodyString,
+              options.sensitiveFields,
             );
           }
         }
+
+        // Truncate if too long
+        if (options.maxBodySize && bodyString.length > options.maxBodySize) {
+          bodyString =
+            bodyString.substring(0, options.maxBodySize) + '... [truncated]';
+        }
+
+        return bodyString;
+      };
+    }
+
+    if (!target.sanitizeSensitiveFields) {
+      target.sanitizeSensitiveFields = function (
+        obj: any,
+        sensitiveFields: string[],
+      ): any {
+        if (Array.isArray(obj)) {
+          return obj.map((item) =>
+            this.sanitizeSensitiveFields(item, sensitiveFields),
+          );
+        }
+
+        if (obj && typeof obj === 'object') {
+          const sanitized: any = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (
+              sensitiveFields.some((field) =>
+                key.toLowerCase().includes(field.toLowerCase()),
+              )
+            ) {
+              sanitized[key] = '[REDACTED]';
+            } else {
+              sanitized[key] = this.sanitizeSensitiveFields(
+                value,
+                sensitiveFields,
+              );
+            }
+          }
+          return sanitized;
+        }
+
+        return obj;
+      };
+    }
+
+    if (!target.sanitizeString) {
+      target.sanitizeString = function (
+        str: string,
+        sensitiveFields: string[],
+      ): string {
+        let sanitized = str;
+        for (const field of sensitiveFields) {
+          const regex = new RegExp(`"${field}"\\s*:\\s*"[^"]*"`, 'gi');
+          sanitized = sanitized.replace(regex, `"${field}": "[REDACTED]"`);
+        }
         return sanitized;
-      }
-
-      return obj;
-    };
-
-    descriptor.value.sanitizeString = function (
-      str: string,
-      sensitiveFields: string[],
-    ): string {
-      let sanitized = str;
-      for (const field of sensitiveFields) {
-        const regex = new RegExp(`"${field}"\\s*:\\s*"[^"]*"`, 'gi');
-        sanitized = sanitized.replace(regex, `"${field}": "[REDACTED]"`);
-      }
-      return sanitized;
-    };
+      };
+    }
 
     return descriptor;
   };
