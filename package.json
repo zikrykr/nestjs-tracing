@@ -46,7 +46,7 @@
     "@opentelemetry/instrumentation-http": "^0.54.0",
     "@opentelemetry/instrumentation-express": "^0.37.0",
     "@opentelemetry/instrumentation-amqplib": "^0.37.0",
-    "@nestjs/config": "^3.0.0",
+    "@nestjs/config": "^4.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "jsonwebtoken": "^9.0.2",
     "reflect-metadata": "^0.2.2",

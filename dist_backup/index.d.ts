@@ -1,23 +1,13 @@
-// Main entry point for the middleware package
 export * from './middlewares';
-
-// Export decorators
 export * from './decorators/trace.decorator';
-
-// Export trace framework
 export * from './framework/trace/opentelemetry';
 export * from './framework/alert/teams-alert.service';
 export * from './framework/alert/slack-alert.service';
 export * from './framework/alert/google-chat-alert.service';
 export * from './framework/alert/unified-alert.service';
 export * from './framework/alert/alert.interface';
-
-// Export constants
+export * from './framework/setup';
 export * from './constants/redis-key';
-
-// Re-export common NestJS types that might be needed
-export type { Injectable, NestMiddleware } from '@nestjs/common';
+export { Injectable, NestMiddleware } from '@nestjs/common';
 export type { NextFunction } from 'express';
-
-// Export version for consumers
-export const VERSION = '1.0.0'; 
+export declare const VERSION = "1.0.0";

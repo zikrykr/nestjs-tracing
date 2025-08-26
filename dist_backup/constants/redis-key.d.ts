@@ -1,0 +1,1 @@
+export declare const USER_BLOCK_STATUS_KEY = "USER_BLOCK_STATUS_$COMPANY_ID";
