@@ -343,9 +343,10 @@ export function Trace(options?: TraceOptions | string) {
           throw error;
         } finally {
           spanData.duration = Date.now() - startTime;
-          logger.log(
-            `Service Span Complete: ${JSON.stringify(spanData, null, 2)}`,
-          );
+          const safeSpanData = this.safeStringify
+            ? this.safeStringify(spanData)
+            : JSON.stringify(spanData, null, 2);
+          logger.log(`Service Span Complete: ${safeSpanData}`);
           span.end();
         }
       });
