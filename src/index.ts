@@ -11,6 +11,7 @@ export * from './framework/alert/slack-alert.service';
 export * from './framework/alert/google-chat-alert.service';
 export * from './framework/alert/unified-alert.service';
 export * from './framework/alert/alert.interface';
+export * from './framework/alert/alert.module';
 
 // Export constants
 export * from './constants/redis-key';
