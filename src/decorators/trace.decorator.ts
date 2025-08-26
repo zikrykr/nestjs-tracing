@@ -186,6 +186,74 @@ export function Trace(options?: TraceOptions | string) {
             });
           }
 
+          // Enhanced request body detection for NestJS decorators
+          if (finalOptions.includeRequestBody) {
+            // Look for request body in method arguments more intelligently
+            let requestBodyFound = false;
+
+            // First, check if we already found a request body above
+            if (spanData.attributes['request.body']) {
+              requestBodyFound = true;
+            }
+
+            // If not found, try to detect it from method arguments
+            if (!requestBodyFound) {
+              for (let i = 0; i < args.length; i++) {
+                const arg = args[i];
+
+                // Skip if not an object or if it's a primitive
+                if (!arg || typeof arg !== 'object' || Buffer.isBuffer(arg)) {
+                  continue;
+                }
+
+                // Check if this argument contains request body data
+                if (this.containsRequestBodyData(arg)) {
+                  const requestBody = this.extractAndSanitizeBody(
+                    arg,
+                    finalOptions,
+                  );
+                  if (requestBody) {
+                    const bodyAttributes = {
+                      'request.body': requestBody,
+                      'request.body.size': requestBody.length,
+                      'request.body.source': `arg.${i}`,
+                    };
+                    span.setAttributes(bodyAttributes);
+                    spanData.attributes = {
+                      ...spanData.attributes,
+                      ...bodyAttributes,
+                    };
+                    requestBodyFound = true;
+                    break; // Found request body, no need to check other args
+                  }
+                }
+              }
+            }
+
+            // If still no request body found, try to create one from available data
+            if (!requestBodyFound && args.length > 0) {
+              const requestData = this.buildRequestObjectFromArgs(args);
+              if (requestData) {
+                const requestBody = this.extractAndSanitizeBody(
+                  requestData,
+                  finalOptions,
+                );
+                if (requestBody) {
+                  const bodyAttributes = {
+                    'request.body': requestBody,
+                    'request.body.size': requestBody.length,
+                    'request.body.source': 'constructed',
+                  };
+                  span.setAttributes(bodyAttributes);
+                  spanData.attributes = {
+                    ...spanData.attributes,
+                    ...bodyAttributes,
+                  };
+                }
+              }
+            }
+          }
+
           const startEvent = {
             timestamp: new Date().toISOString(),
           };
@@ -581,6 +649,75 @@ export function Trace(options?: TraceOptions | string) {
           sanitized = sanitized.replace(regex, `"${field}": "[REDACTED]"`);
         }
         return sanitized;
+      };
+    }
+
+    // Enhanced request body detection helpers
+    if (!target.containsRequestBodyData) {
+      target.containsRequestBodyData = function (obj: any): boolean {
+        if (!obj || typeof obj !== 'object') {
+          return false;
+        }
+
+        // Check if this object contains request body data
+        // Look for common request body patterns
+        const hasBodyData =
+          obj.body !== undefined ||
+          obj.data !== undefined ||
+          obj.payload !== undefined ||
+          obj.requestBody !== undefined ||
+          // Check if object has multiple properties (likely a DTO)
+          (Object.keys(obj).length > 0 &&
+            Object.keys(obj).some(
+              (key) =>
+                typeof obj[key] === 'object' ||
+                typeof obj[key] === 'string' ||
+                typeof obj[key] === 'number',
+            ));
+
+        return hasBodyData;
+      };
+    }
+
+    if (!target.buildRequestObjectFromArgs) {
+      target.buildRequestObjectFromArgs = function (args: any[]): any | null {
+        if (!args || args.length === 0) {
+          return null;
+        }
+
+        // Try to find the most likely request body candidate
+        let bestCandidate = null;
+        let bestScore = 0;
+
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i];
+          if (!arg || typeof arg !== 'object') {
+            continue;
+          }
+
+          let score = 0;
+
+          // Score based on object properties
+          if (arg.body !== undefined) score += 10;
+          if (arg.data !== undefined) score += 8;
+          if (arg.payload !== undefined) score += 8;
+          if (arg.requestBody !== undefined) score += 8;
+
+          // Score based on object structure (likely a DTO)
+          if (Object.keys(arg).length > 0) {
+            score += Math.min(Object.keys(arg).length, 5); // Cap at 5
+          }
+
+          // Score based on argument position (earlier args are more likely to be request body)
+          score += Math.max(0, 5 - i);
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = arg;
+          }
+        }
+
+        return bestCandidate;
       };
     }
 
