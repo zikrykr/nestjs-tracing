@@ -39,12 +39,19 @@ export interface TraceOptions {
   businessImpact?: 'low' | 'medium' | 'high' | 'critical';
   userAffected?: boolean;
   customContext?: Record<string, any>;
-  
+
   // Tracing options
   spanName?: string;
   includeArgs?: boolean;
   includeUserContext?: boolean;
   includeHttpContext?: boolean;
+
+  // Body capture options
+  includeRequestBody?: boolean;
+  includeResponseBody?: boolean;
+  includeErrorBody?: boolean;
+  maxBodySize?: number; // Maximum size of body to capture (in characters)
+  sensitiveFields?: string[]; // Fields to redact from bodies
 }
 
 /**
@@ -62,9 +69,8 @@ export function Trace(options?: TraceOptions | string) {
     const logger = new Logger('TraceDecorator');
 
     // Handle both string (legacy) and object (new) parameter styles
-    const config: TraceOptions = typeof options === 'string' 
-      ? { spanName: options }
-      : (options || {});
+    const config: TraceOptions =
+      typeof options === 'string' ? { spanName: options } : options || {};
 
     // Default options
     const defaultOptions: Required<TraceOptions> = {
@@ -78,6 +84,11 @@ export function Trace(options?: TraceOptions | string) {
       includeArgs: true,
       includeUserContext: true,
       includeHttpContext: true,
+      includeRequestBody: true,
+      includeResponseBody: true,
+      includeErrorBody: true,
+      maxBodySize: 1000, // Default max body size
+      sensitiveFields: ['password', 'token', 'secret', 'key', 'authorization'],
     };
 
     const finalOptions = { ...defaultOptions, ...config };
@@ -89,7 +100,7 @@ export function Trace(options?: TraceOptions | string) {
         const spanId = span.spanContext().spanId;
         const traceId = span.spanContext().traceId;
         const startTime = Date.now();
-        
+
         // Collect span data for logging
         const spanData: SpanData = {
           spanId,
@@ -100,9 +111,9 @@ export function Trace(options?: TraceOptions | string) {
           events: [],
           status: null,
           error: null,
-          duration: null
+          duration: null,
         };
-        
+
         try {
           // Add method-specific attributes
           const attributes = {
@@ -125,16 +136,51 @@ export function Trace(options?: TraceOptions | string) {
             args.forEach((arg, index) => {
               if (arg && typeof arg === 'object' && !Buffer.isBuffer(arg)) {
                 // Only add safe attributes
-                const safeKeys = ['id', 'type', 'status', 'name', 'code', 'userId', 'companyId'];
+                const safeKeys = [
+                  'id',
+                  'type',
+                  'status',
+                  'name',
+                  'code',
+                  'userId',
+                  'companyId',
+                ];
                 const argAttributes: Record<string, any> = {};
-                safeKeys.forEach(key => {
+                safeKeys.forEach((key) => {
                   if (arg[key] !== undefined) {
-                    argAttributes[`method.arg.${index}.${key}`] = String(arg[key]);
+                    argAttributes[`method.arg.${index}.${key}`] = String(
+                      arg[key],
+                    );
                   }
                 });
                 if (Object.keys(argAttributes).length > 0) {
                   span.setAttributes(argAttributes);
-                  spanData.attributes = { ...spanData.attributes, ...argAttributes };
+                  spanData.attributes = {
+                    ...spanData.attributes,
+                    ...argAttributes,
+                  };
+                }
+
+                // Extract request body if this looks like a request object
+                if (
+                  finalOptions.includeRequestBody &&
+                  this.isRequestObject(arg)
+                ) {
+                  const requestBody = this.extractAndSanitizeBody(
+                    arg,
+                    finalOptions,
+                  );
+                  if (requestBody) {
+                    const bodyAttributes = {
+                      'request.body': requestBody,
+                      'request.body.size': requestBody.length,
+                    };
+                    span.setAttributes(bodyAttributes);
+                    spanData.attributes = {
+                      ...spanData.attributes,
+                      ...bodyAttributes,
+                    };
+                  }
                 }
               }
             });
@@ -144,15 +190,40 @@ export function Trace(options?: TraceOptions | string) {
             timestamp: new Date().toISOString(),
           };
           span.addEvent('method.execution.start', startEvent);
-          spanData.events.push({ name: 'method.execution.start', data: startEvent });
+          spanData.events.push({
+            name: 'method.execution.start',
+            data: startEvent,
+          });
 
           const result = await method.apply(this, args);
+
+          // Extract response body if enabled
+          if (finalOptions.includeResponseBody && result) {
+            const responseBody = this.extractAndSanitizeBody(
+              result,
+              finalOptions,
+            );
+            if (responseBody) {
+              const bodyAttributes = {
+                'response.body': responseBody,
+                'response.body.size': responseBody.length,
+              };
+              span.setAttributes(bodyAttributes);
+              spanData.attributes = {
+                ...spanData.attributes,
+                ...bodyAttributes,
+              };
+            }
+          }
 
           const successEvent = {
             timestamp: new Date().toISOString(),
           };
           span.addEvent('method.execution.success', successEvent);
-          spanData.events.push({ name: 'method.execution.success', data: successEvent });
+          spanData.events.push({
+            name: 'method.execution.success',
+            data: successEvent,
+          });
 
           span.setStatus({ code: SpanStatusCode.OK });
           spanData.status = { code: 'OK', message: 'Success' };
@@ -165,21 +236,31 @@ export function Trace(options?: TraceOptions | string) {
           };
           span.setStatus(errorStatus);
           spanData.status = { code: 'ERROR', message: error.message };
-          
+
           span.recordException(error);
           spanData.error = {
             message: error.message,
             type: error.constructor.name,
-            stack: error.stack
+            stack: error.stack,
           };
-          
+
           const errorAttributes = {
-            'error': true,
+            error: true,
             'error.type': error.constructor.name,
           };
+
+          // Extract error body if enabled
+          if (finalOptions.includeErrorBody && error) {
+            const errorBody = this.extractAndSanitizeBody(error, finalOptions);
+            if (errorBody) {
+              errorAttributes['error.body'] = errorBody;
+              errorAttributes['error.body.size'] = errorBody.length;
+            }
+          }
+
           span.setAttributes(errorAttributes);
           spanData.attributes = { ...spanData.attributes, ...errorAttributes };
-          
+
           // Send unified alert (always enabled by default)
           if (finalOptions.alertOnError) {
             await this.sendUnifiedAlert(
@@ -187,14 +268,16 @@ export function Trace(options?: TraceOptions | string) {
               error,
               finalOptions,
               target.constructor.name,
-              propertyName
+              propertyName,
             );
           }
-          
+
           throw error;
         } finally {
           spanData.duration = Date.now() - startTime;
-          logger.log(`Service Span Complete: ${JSON.stringify(spanData, null, 2)}`);
+          logger.log(
+            `Service Span Complete: ${JSON.stringify(spanData, null, 2)}`,
+          );
           span.end();
         }
       });
@@ -206,12 +289,12 @@ export function Trace(options?: TraceOptions | string) {
       error: any,
       options: TraceOptions,
       className: string,
-      methodName: string
+      methodName: string,
     ): Promise<void> {
       try {
         // Try to get UnifiedAlertService from the instance
         const unifiedAlertService = (this as any).unifiedAlertService;
-        
+
         if (!unifiedAlertService) {
           logger.warn('UnifiedAlertService not available, skipping alert');
           return;
@@ -246,7 +329,7 @@ export function Trace(options?: TraceOptions | string) {
 
         // Determine if this is a critical error
         const isCritical = this.isCriticalError(error, options);
-        
+
         if (isCritical && options.alertOnCriticalError) {
           await unifiedAlertService.sendCriticalErrorAlert(alertData);
         } else if (options.alertOnError) {
@@ -258,31 +341,49 @@ export function Trace(options?: TraceOptions | string) {
     };
 
     // Add helper methods to the decorated function
-    descriptor.value.extractUserContext = function (span: any, options: TraceOptions): { userId?: string; companyId?: string } {
+    descriptor.value.extractUserContext = function (
+      span: any,
+      options: TraceOptions,
+    ): { userId?: string; companyId?: string } {
       if (!options.includeUserContext) return {};
-      
+
       const attributes = span.attributes || {};
-      
+
       return {
-        userId: attributes['user.id'] || attributes['user_id'] || attributes['userId'],
-        companyId: attributes['company.id'] || attributes['company_id'] || attributes['companyId'],
+        userId:
+          attributes['user.id'] ||
+          attributes['user_id'] ||
+          attributes['userId'],
+        companyId:
+          attributes['company.id'] ||
+          attributes['company_id'] ||
+          attributes['companyId'],
       };
     };
 
-    descriptor.value.extractHttpContext = function (span: any, options: TraceOptions): { httpMethod?: string; httpUrl?: string } {
+    descriptor.value.extractHttpContext = function (
+      span: any,
+      options: TraceOptions,
+    ): { httpMethod?: string; httpUrl?: string } {
       if (!options.includeHttpContext) return {};
-      
+
       const attributes = span.attributes || {};
-      
+
       return {
         httpMethod: attributes['http.method'],
         httpUrl: attributes['http.url'],
       };
     };
 
-    descriptor.value.isCriticalError = function (error: any, options: TraceOptions): boolean {
+    descriptor.value.isCriticalError = function (
+      error: any,
+      options: TraceOptions,
+    ): boolean {
       // Check if explicitly marked as critical
-      if (options.severity === 'critical' || options.businessImpact === 'critical') {
+      if (
+        options.severity === 'critical' ||
+        options.businessImpact === 'critical'
+      ) {
         return true;
       }
 
@@ -317,19 +418,153 @@ export function Trace(options?: TraceOptions | string) {
           'transaction failed',
         ];
 
-        if (criticalKeywords.some(keyword => 
-          error.message.toLowerCase().includes(keyword)
-        )) {
+        if (
+          criticalKeywords.some((keyword) =>
+            error.message.toLowerCase().includes(keyword),
+          )
+        ) {
           return true;
         }
       }
 
       // Check if error has critical indicators
-      if ((error as any).critical === true || (error as any).severity === 'critical') {
+      if (
+        (error as any).critical === true ||
+        (error as any).severity === 'critical'
+      ) {
         return true;
       }
 
       return false;
+    };
+
+    // Add body extraction helper methods
+    descriptor.value.isRequestObject = function (obj: any): boolean {
+      // Check if this looks like a request object
+      return (
+        obj &&
+        (obj.body !== undefined ||
+          obj.params !== undefined ||
+          obj.query !== undefined ||
+          obj.headers !== undefined ||
+          obj.method !== undefined ||
+          obj.url !== undefined ||
+          obj.path !== undefined)
+      );
+    };
+
+    descriptor.value.extractAndSanitizeBody = function (
+      obj: any,
+      options: TraceOptions,
+    ): string | null {
+      if (!obj || typeof obj !== 'object') {
+        return null;
+      }
+
+      let body: any = null;
+
+      // Extract body from different possible locations
+      if (obj.body !== undefined) {
+        body = obj.body;
+      } else if (obj.data !== undefined) {
+        body = obj.data;
+      } else if (obj.payload !== undefined) {
+        body = obj.payload;
+      } else if (obj.requestBody !== undefined) {
+        body = obj.requestBody;
+      } else if (obj.responseBody !== undefined) {
+        body = obj.responseBody;
+      } else if (obj.errorBody !== undefined) {
+        body = obj.errorBody;
+      } else {
+        // If no specific body field, try to use the object itself
+        body = obj;
+      }
+
+      if (!body) {
+        return null;
+      }
+
+      // Convert to string if it's not already
+      let bodyString: string;
+      if (typeof body === 'string') {
+        bodyString = body;
+      } else if (typeof body === 'object') {
+        try {
+          bodyString = JSON.stringify(body);
+        } catch {
+          bodyString = String(body);
+        }
+      } else {
+        bodyString = String(body);
+      }
+
+      // Sanitize sensitive fields
+      if (options.sensitiveFields && options.sensitiveFields.length > 0) {
+        try {
+          const bodyObj = JSON.parse(bodyString);
+          const sanitized = this.sanitizeSensitiveFields(
+            bodyObj,
+            options.sensitiveFields,
+          );
+          bodyString = JSON.stringify(sanitized);
+        } catch {
+          // If parsing fails, try to sanitize as string
+          bodyString = this.sanitizeString(bodyString, options.sensitiveFields);
+        }
+      }
+
+      // Truncate if too long
+      if (options.maxBodySize && bodyString.length > options.maxBodySize) {
+        bodyString =
+          bodyString.substring(0, options.maxBodySize) + '... [truncated]';
+      }
+
+      return bodyString;
+    };
+
+    descriptor.value.sanitizeSensitiveFields = function (
+      obj: any,
+      sensitiveFields: string[],
+    ): any {
+      if (Array.isArray(obj)) {
+        return obj.map((item) =>
+          this.sanitizeSensitiveFields(item, sensitiveFields),
+        );
+      }
+
+      if (obj && typeof obj === 'object') {
+        const sanitized: any = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (
+            sensitiveFields.some((field) =>
+              key.toLowerCase().includes(field.toLowerCase()),
+            )
+          ) {
+            sanitized[key] = '[REDACTED]';
+          } else {
+            sanitized[key] = this.sanitizeSensitiveFields(
+              value,
+              sensitiveFields,
+            );
+          }
+        }
+        return sanitized;
+      }
+
+      return obj;
+    };
+
+    descriptor.value.sanitizeString = function (
+      str: string,
+      sensitiveFields: string[],
+    ): string {
+      let sanitized = str;
+      for (const field of sensitiveFields) {
+        const regex = new RegExp(`"${field}"\\s*:\\s*"[^"]*"`, 'gi');
+        sanitized = sanitized.replace(regex, `"${field}": "[REDACTED]"`);
+      }
+      return sanitized;
     };
 
     return descriptor;

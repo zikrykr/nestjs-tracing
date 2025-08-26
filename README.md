@@ -133,10 +133,10 @@ export class UserService {
 
 ### `@Trace()` - Observability Decorator
 
-The main decorator that provides tracing, monitoring, and Teams alerting:
+The main decorator that provides tracing, monitoring, Teams alerting, and **automatic body capture**:
 
 ```typescript
-// Basic usage (Teams alerts enabled by default)
+// Basic usage (Teams alerts and body capture enabled by default)
 @Trace()
 async basicMethod() { /* ... */ }
 
@@ -144,15 +144,28 @@ async basicMethod() { /* ... */ }
 @Trace('custom.operation.name')
 async customMethod() { /* ... */ }
 
-// Full configuration
+// Full configuration with body capture options
 @Trace({
   severity: 'critical',
   businessImpact: 'critical',
   userAffected: true,
-  customContext: { operation: 'payment' }
+  customContext: { operation: 'payment' },
+  includeRequestBody: true,      // Capture request.body
+  includeResponseBody: true,     // Capture response.body  
+  includeErrorBody: true,        // Capture error.body
+  maxBodySize: 2000,            // Max body size to capture
+  sensitiveFields: ['password', 'token', 'secret'] // Fields to redact
 })
 async criticalMethod() { /* ... */ }
 ```
+
+**🔍 Body Capture Features:**
+- **Request Body**: Automatically detects and captures `request.body`, `data`, `payload`, etc.
+- **Response Body**: Captures method return values and response data
+- **Error Body**: Extracts error details and context
+- **Smart Sanitization**: Automatically redacts sensitive fields (passwords, tokens, etc.)
+- **Size Control**: Configurable maximum body size with truncation
+- **Multiple Formats**: Handles JSON, objects, strings, and various data structures
 
 ### `@TraceAsync()` - Async Operations
 
@@ -176,6 +189,20 @@ interface OpenTelemetryConfig {
 
 ### Teams Alerting Configuration
 The `TeamsAlertService` automatically reads from environment variables:
+
+### Body Capture Configuration
+The `@Trace` decorator automatically captures request/response/error bodies with smart sanitization:
+
+```typescript
+interface TraceOptions {
+  // Body capture options (all enabled by default)
+  includeRequestBody?: boolean;    // Capture request.body, data, payload, etc.
+  includeResponseBody?: boolean;   // Capture method return values
+  includeErrorBody?: boolean;      // Capture error details
+  maxBodySize?: number;           // Maximum body size (default: 1000 chars)
+  sensitiveFields?: string[];     // Fields to redact (default: password, token, secret, key, authorization)
+}
+```
 
 ```typescript
 // Environment variables (set in .env file or system)
@@ -221,6 +248,38 @@ When errors occur, you automatically get:
 - 🌐 HTTP context (if available)
 - 📊 Business impact and severity
 - 🕒 Timestamp and duration
+
+## 🔍 **Body Capture Features**
+
+The `@Trace` decorator automatically captures and sanitizes:
+
+```typescript
+@Trace({
+  includeRequestBody: true,
+  includeResponseBody: true,
+  includeErrorBody: true,
+  maxBodySize: 2000,
+  sensitiveFields: ['password', 'apiKey', 'secret']
+})
+async processUser(userData: any) {
+  // Request body automatically captured:
+  // - userData.body (if it's a request object)
+  // - userData.data, userData.payload, etc.
+  
+  const result = await this.userService.create(userData);
+  
+  // Response body automatically captured:
+  // - result object/string
+  
+  return result;
+}
+```
+
+**What Gets Captured:**
+- **Request**: `request.body`, `data`, `payload`, `requestBody`
+- **Response**: Method return values, response objects
+- **Errors**: Error objects, error messages, error context
+- **Smart Detection**: Automatically identifies request/response patterns
 
 ## 🌍 **Environment Variables**
 
