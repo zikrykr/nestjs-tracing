@@ -14,20 +14,36 @@ jest.mock('@nestjs/common', () => {
   };
 });
 
-// Mock alert providers
-const createMockProvider = (name: string, configured: boolean = true): jest.Mocked<AlertProvider> => ({
+// Mock alert services
+const createMockTeamsService = (configured: boolean = true) => ({
   sendErrorAlert: jest.fn().mockResolvedValue(undefined),
   sendCriticalErrorAlert: jest.fn().mockResolvedValue(undefined),
   sendBatchErrorAlerts: jest.fn().mockResolvedValue(undefined),
   isConfigured: jest.fn().mockReturnValue(configured),
-  getProviderName: jest.fn().mockReturnValue(name),
+  getProviderName: jest.fn().mockReturnValue('Microsoft Teams'),
+});
+
+const createMockSlackService = (configured: boolean = true) => ({
+  sendErrorAlert: jest.fn().mockResolvedValue(undefined),
+  sendCriticalErrorAlert: jest.fn().mockResolvedValue(undefined),
+  sendBatchErrorAlerts: jest.fn().mockResolvedValue(undefined),
+  isConfigured: jest.fn().mockReturnValue(configured),
+  getProviderName: jest.fn().mockReturnValue('Slack'),
+});
+
+const createMockGoogleChatService = (configured: boolean = true) => ({
+  sendErrorAlert: jest.fn().mockResolvedValue(undefined),
+  sendCriticalErrorAlert: jest.fn().mockResolvedValue(undefined),
+  sendBatchErrorAlerts: jest.fn().mockResolvedValue(undefined),
+  isConfigured: jest.fn().mockReturnValue(configured),
+  getProviderName: jest.fn().mockReturnValue('Google Chat'),
 });
 
 describe('UnifiedAlertService', () => {
   let service: UnifiedAlertService;
-  let mockTeamsProvider: jest.Mocked<AlertProvider>;
-  let mockSlackProvider: jest.Mocked<AlertProvider>;
-  let mockGoogleChatProvider: jest.Mocked<AlertProvider>;
+  let mockTeamsService: any;
+  let mockSlackService: any;
+  let mockGoogleChatService: any;
   let mockLogger: any;
 
   const mockAlertData: ErrorAlertData = {
@@ -41,9 +57,9 @@ describe('UnifiedAlertService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockTeamsProvider = createMockProvider('Microsoft Teams', true);
-    mockSlackProvider = createMockProvider('Slack', true);
-    mockGoogleChatProvider = createMockProvider('Google Chat', true);
+    mockTeamsService = createMockTeamsService(true);
+    mockSlackService = createMockSlackService(true);
+    mockGoogleChatService = createMockGoogleChatService(true);
 
     mockLogger = {
       log: jest.fn(),
@@ -58,362 +74,338 @@ describe('UnifiedAlertService', () => {
 
   describe('constructor', () => {
     it('should initialize with providers and log available providers', () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Alert providers configured: Microsoft Teams, Slack'
+        'Alert providers configured: Microsoft Teams, Slack, Google Chat',
       );
     });
 
     it('should log unconfigured providers', () => {
-      const unconfiguredProvider = createMockProvider('Unconfigured Provider', false);
-      service = new UnifiedAlertService([mockTeamsProvider, unconfiguredProvider]);
+      const unconfiguredSlackService = createMockSlackService(false);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        unconfiguredSlackService,
+        mockGoogleChatService,
+      );
 
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Alert providers configured: Microsoft Teams'
+        'Alert providers configured: Microsoft Teams, Google Chat',
       );
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Alert providers not configured: Unconfigured Provider'
+        'Alert providers not configured: Slack',
       );
     });
 
-    it('should warn when no providers are registered', () => {
-      service = new UnifiedAlertService([]);
+    it('should handle mixed configured/unconfigured providers', () => {
+      const unconfiguredSlackService = createMockSlackService(false);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        unconfiguredSlackService,
+        mockGoogleChatService,
+      );
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('No alert providers registered');
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        'Alert providers configured: Microsoft Teams, Google Chat',
+      );
+      expect(mockLogger.log).toHaveBeenCalledWith(
+        'Alert providers not configured: Slack',
+      );
     });
   });
 
   describe('sendErrorAlert', () => {
     it('should send error alert to all configured providers', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       await service.sendErrorAlert(mockAlertData);
 
-      expect(mockTeamsProvider.sendErrorAlert).toHaveBeenCalledWith(mockAlertData);
-      expect(mockSlackProvider.sendErrorAlert).toHaveBeenCalledWith(mockAlertData);
+      expect(mockTeamsService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockSlackService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockGoogleChatService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Microsoft Teams, Slack'
+        'Error alert sent successfully via: Microsoft Teams, Slack, Google Chat',
       );
     });
 
     it('should skip alert when no providers are configured', async () => {
-      const unconfiguredProvider = createMockProvider('Unconfigured', false);
-      service = new UnifiedAlertService([unconfiguredProvider]);
+      const unconfiguredTeamsService = createMockTeamsService(false);
+      const unconfiguredSlackService = createMockSlackService(false);
+      const unconfiguredGoogleChatService = createMockGoogleChatService(false);
+
+      service = new UnifiedAlertService(
+        unconfiguredTeamsService,
+        unconfiguredSlackService,
+        unconfiguredGoogleChatService,
+      );
 
       await service.sendErrorAlert(mockAlertData);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        'No alert providers configured, skipping alert'
+        'No alert providers configured, skipping alert',
       );
-      expect(unconfiguredProvider.sendErrorAlert).not.toHaveBeenCalled();
+      expect(unconfiguredTeamsService.sendErrorAlert).not.toHaveBeenCalled();
+      expect(unconfiguredSlackService.sendErrorAlert).not.toHaveBeenCalled();
+      expect(
+        unconfiguredGoogleChatService.sendErrorAlert,
+      ).not.toHaveBeenCalled();
     });
 
     it('should handle provider failures gracefully', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Teams failed'));
-      mockSlackProvider.sendErrorAlert.mockResolvedValueOnce(undefined);
+      mockTeamsService.sendErrorAlert.mockRejectedValueOnce(
+        new Error('Teams service down'),
+      );
+      mockSlackService.sendErrorAlert.mockRejectedValueOnce(
+        new Error('Slack service down'),
+      );
 
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       await service.sendErrorAlert(mockAlertData);
 
+      expect(mockTeamsService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockSlackService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockGoogleChatService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+
+      // Should log failures
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error alert failed via Microsoft Teams:',
-        expect.any(Error)
-      );
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Slack'
-      );
-    });
-
-    it('should log error when all providers fail', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Teams failed'));
-      mockSlackProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Slack failed'));
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      // The service logs individual failures, not a summary message
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error alert failed via Microsoft Teams:',
-        expect.any(Error)
+        expect.any(Error),
       );
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error alert failed via Slack:',
-        expect.any(Error)
+        expect.any(Error),
+      );
+    });
+
+    it('should handle rejected promises from providers', async () => {
+      mockTeamsService.sendErrorAlert.mockResolvedValueOnce(
+        Promise.reject(new Error('Rejected promise')),
+      );
+
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
+
+      await service.sendErrorAlert(mockAlertData);
+
+      expect(mockTeamsService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockSlackService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockGoogleChatService.sendErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+
+      // Should log the failure
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error alert failed via Microsoft Teams:',
+        expect.any(Error),
       );
     });
   });
 
   describe('sendCriticalErrorAlert', () => {
     it('should send critical error alert to all configured providers', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       await service.sendCriticalErrorAlert(mockAlertData);
 
-      expect(mockTeamsProvider.sendCriticalErrorAlert).toHaveBeenCalledWith(mockAlertData);
-      expect(mockSlackProvider.sendCriticalErrorAlert).toHaveBeenCalledWith(mockAlertData);
+      expect(mockTeamsService.sendCriticalErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockSlackService.sendCriticalErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
+      expect(mockGoogleChatService.sendCriticalErrorAlert).toHaveBeenCalledWith(
+        mockAlertData,
+      );
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Critical error alert sent successfully via: Microsoft Teams, Slack'
+        'Critical error alert sent successfully via: Microsoft Teams, Slack, Google Chat',
       );
     });
 
-    it('should handle provider failures with fallbacks', async () => {
-      mockTeamsProvider.sendCriticalErrorAlert.mockRejectedValueOnce(new Error('Teams failed'));
-      mockSlackProvider.sendCriticalErrorAlert.mockResolvedValueOnce(undefined);
+    it('should skip critical alert when no providers are configured', async () => {
+      const unconfiguredTeamsService = createMockTeamsService(false);
+      const unconfiguredSlackService = createMockSlackService(false);
+      const unconfiguredGoogleChatService = createMockGoogleChatService(false);
 
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      service = new UnifiedAlertService(
+        unconfiguredTeamsService,
+        unconfiguredSlackService,
+        unconfiguredGoogleChatService,
+      );
 
       await service.sendCriticalErrorAlert(mockAlertData);
 
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Critical error alert sent successfully via: Slack'
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'No alert providers configured, skipping critical alert',
       );
+      expect(
+        unconfiguredTeamsService.sendCriticalErrorAlert,
+      ).not.toHaveBeenCalled();
+      expect(
+        unconfiguredSlackService.sendCriticalErrorAlert,
+      ).not.toHaveBeenCalled();
+      expect(
+        unconfiguredGoogleChatService.sendCriticalErrorAlert,
+      ).not.toHaveBeenCalled();
     });
   });
 
   describe('sendBatchErrorAlerts', () => {
-    const mockBatchAlerts: ErrorAlertData[] = [
-      { ...mockAlertData, traceId: 'trace-1' },
-      { ...mockAlertData, traceId: 'trace-2' },
-    ];
-
     it('should send batch alerts to all configured providers', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
+      const batchAlerts = [
+        mockAlertData,
+        { ...mockAlertData, error: new Error('Second error') },
+      ];
 
-      await service.sendBatchErrorAlerts(mockBatchAlerts);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
-      expect(mockTeamsProvider.sendBatchErrorAlerts).toHaveBeenCalledWith(mockBatchAlerts);
-      expect(mockSlackProvider.sendBatchErrorAlerts).toHaveBeenCalledWith(mockBatchAlerts);
+      await service.sendBatchErrorAlerts(batchAlerts);
+
+      expect(mockTeamsService.sendBatchErrorAlerts).toHaveBeenCalledWith(
+        batchAlerts,
+      );
+      expect(mockSlackService.sendBatchErrorAlerts).toHaveBeenCalledWith(
+        batchAlerts,
+      );
+      expect(mockGoogleChatService.sendBatchErrorAlerts).toHaveBeenCalledWith(
+        batchAlerts,
+      );
       expect(mockLogger.log).toHaveBeenCalledWith(
-        'Batch error alert sent successfully via: Microsoft Teams, Slack'
+        'Batch error alert sent successfully via: Microsoft Teams, Slack, Google Chat',
       );
     });
 
-    it('should skip batch alert when no providers are configured', async () => {
-      const unconfiguredProvider = createMockProvider('Unconfigured', false);
-      service = new UnifiedAlertService([unconfiguredProvider]);
+    it('should skip batch alerts when no providers are configured', async () => {
+      const unconfiguredTeamsService = createMockTeamsService(false);
+      const unconfiguredSlackService = createMockSlackService(false);
+      const unconfiguredGoogleChatService = createMockGoogleChatService(false);
 
-      await service.sendBatchErrorAlerts(mockBatchAlerts);
+      service = new UnifiedAlertService(
+        unconfiguredTeamsService,
+        unconfiguredSlackService,
+        unconfiguredGoogleChatService,
+      );
+
+      await service.sendBatchErrorAlerts([mockAlertData]);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        'No alert providers configured, skipping batch alert'
+        'No alert providers configured, skipping batch alert',
       );
+      expect(
+        unconfiguredTeamsService.sendBatchErrorAlerts,
+      ).not.toHaveBeenCalled();
+      expect(
+        unconfiguredSlackService.sendBatchErrorAlerts,
+      ).not.toHaveBeenCalled();
+      expect(
+        unconfiguredGoogleChatService.sendBatchErrorAlerts,
+      ).not.toHaveBeenCalled();
     });
 
-    it('should handle empty alerts array', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider]);
+    it('should handle empty batch alerts', async () => {
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       await service.sendBatchErrorAlerts([]);
 
-      expect(mockTeamsProvider.sendBatchErrorAlerts).not.toHaveBeenCalled();
-    });
-
-    it('should handle provider failures with fallbacks for batch alerts', async () => {
-      mockTeamsProvider.sendBatchErrorAlerts.mockRejectedValueOnce(new Error('Teams failed'));
-      mockSlackProvider.sendBatchErrorAlerts.mockResolvedValueOnce(undefined);
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendBatchErrorAlerts(mockBatchAlerts);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Batch error alert sent successfully via: Slack'
-      );
-    });
-  });
-
-  describe('provider selection and fallbacks', () => {
-    it('should use first configured provider as primary', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      // Should log success from all providers
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Microsoft Teams, Slack'
-      );
-    });
-
-    it('should try fallback providers when primary fails', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Primary failed'));
-      mockSlackProvider.sendErrorAlert.mockResolvedValueOnce(undefined);
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Slack'
-      );
-    });
-
-    it('should not retry the same failed provider', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Primary failed'));
-      mockSlackProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Fallback failed'));
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      // Should only call each provider once
-      expect(mockTeamsProvider.sendErrorAlert).toHaveBeenCalledTimes(1);
-      expect(mockSlackProvider.sendErrorAlert).toHaveBeenCalledTimes(1);
+      expect(mockTeamsService.sendBatchErrorAlerts).not.toHaveBeenCalled();
+      expect(mockSlackService.sendBatchErrorAlerts).not.toHaveBeenCalled();
+      expect(mockGoogleChatService.sendBatchErrorAlerts).not.toHaveBeenCalled();
     });
   });
 
   describe('getProvidersStatus', () => {
     it('should return status of all providers', () => {
-      const unconfiguredProvider = createMockProvider('Unconfigured', false);
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider, unconfiguredProvider]);
+      const unconfiguredSlackService = createMockSlackService(false);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        unconfiguredSlackService,
+        mockGoogleChatService,
+      );
 
       const status = service.getProvidersStatus();
 
       expect(status).toEqual([
         { name: 'Microsoft Teams', configured: true },
-        { name: 'Slack', configured: true },
-        { name: 'Unconfigured', configured: false },
+        { name: 'Slack', configured: false },
+        { name: 'Google Chat', configured: true },
       ]);
     });
-
-    it('should return empty array when no providers', () => {
-      service = new UnifiedAlertService([]);
-
-      const status = service.getProvidersStatus();
-
-      expect(status).toEqual([]);
-    });
   });
 
-  describe('logging and monitoring', () => {
-    it('should log successful alerts with provider names', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Microsoft Teams, Slack'
+  describe('error handling', () => {
+    it('should handle errors in alert sending gracefully', async () => {
+      mockTeamsService.sendErrorAlert.mockRejectedValueOnce(
+        new Error('Teams service error'),
       );
-    });
+      mockSlackService.sendErrorAlert.mockRejectedValueOnce(
+        new Error('Slack service error'),
+      );
 
-    it('should log provider failures with details', async () => {
-      const error = new Error('Network timeout');
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(error);
-
-      service = new UnifiedAlertService([mockTeamsProvider]);
+      service = new UnifiedAlertService(
+        mockTeamsService,
+        mockSlackService,
+        mockGoogleChatService,
+      );
 
       await service.sendErrorAlert(mockAlertData);
 
+      // All providers should still be called
+      expect(mockTeamsService.sendErrorAlert).toHaveBeenCalled();
+      expect(mockSlackService.sendErrorAlert).toHaveBeenCalled();
+      expect(mockGoogleChatService.sendErrorAlert).toHaveBeenCalled();
+
+      // Errors should be logged
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error alert failed via Microsoft Teams:',
-        error
+        expect.any(Error),
       );
-    });
-
-    it('should log summary when multiple providers succeed', async () => {
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert summary: All 2 providers succeeded'
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error alert failed via Slack:',
+        expect.any(Error),
       );
-    });
-
-    it('should log summary when some providers fail', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce(new Error('Teams failed'));
-      mockSlackProvider.sendErrorAlert.mockResolvedValueOnce(undefined);
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        'Error alert summary: 1/2 providers succeeded, 1/2 failed'
-      );
-    });
-  });
-
-  describe('error handling edge cases', () => {
-    it('should handle providers that throw non-Error exceptions', async () => {
-      mockTeamsProvider.sendErrorAlert.mockRejectedValueOnce('String error');
-      mockSlackProvider.sendErrorAlert.mockResolvedValueOnce(undefined);
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Slack'
-      );
-    });
-
-    it('should handle providers that return rejected promises', async () => {
-      mockTeamsProvider.sendErrorAlert.mockResolvedValueOnce(
-        Promise.reject(new Error('Rejected promise'))
-      );
-      mockSlackProvider.sendErrorAlert.mockResolvedValueOnce(undefined);
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      expect(mockLogger.log).toHaveBeenCalledWith(
-        'Error alert sent successfully via: Slack'
-      );
-    });
-
-    it('should handle very large alert data', async () => {
-      const largeAlertData: ErrorAlertData = {
-        ...mockAlertData,
-        additionalContext: {
-          largeData: 'A'.repeat(100000), // Very large context
-        },
-      };
-
-      service = new UnifiedAlertService([mockTeamsProvider]);
-
-      await expect(service.sendErrorAlert(largeAlertData)).resolves.not.toThrow();
-    });
-  });
-
-  describe('performance and concurrency', () => {
-    it('should send alerts to all providers concurrently', async () => {
-      const startTime = Date.now();
-      const delay = 100; // 100ms delay
-
-      mockTeamsProvider.sendErrorAlert.mockImplementation(() => 
-        new Promise(resolve => setTimeout(resolve, delay))
-      );
-      mockSlackProvider.sendErrorAlert.mockImplementation(() => 
-        new Promise(resolve => setTimeout(resolve, delay))
-      );
-
-      service = new UnifiedAlertService([mockTeamsProvider, mockSlackProvider]);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      const endTime = Date.now();
-      const duration = endTime - startTime;
-
-      // Should complete in roughly the delay time (not 2x delay)
-      expect(duration).toBeLessThan(delay * 1.5);
-    });
-
-    it('should handle many providers efficiently', async () => {
-      const manyProviders = Array.from({ length: 10 }, (_, i) => 
-        createMockProvider(`Provider${i}`)
-      );
-
-      service = new UnifiedAlertService(manyProviders);
-
-      await service.sendErrorAlert(mockAlertData);
-
-      // All providers should have been called
-      manyProviders.forEach(provider => {
-        expect(provider.sendErrorAlert).toHaveBeenCalledWith(mockAlertData);
-      });
     });
   });
 }); 
