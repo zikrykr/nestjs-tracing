@@ -1,5 +1,5 @@
 {
-  "name": "@ce-service/core",
+  "name": "@zikrykr/core",
   "version": "1.0.0",
   "description": "A lightweight NestJS utility package that provides tracing and Teams alerting via decorators with zero code changes",
   "main": "dist/index.js",
