@@ -87,7 +87,7 @@ export function Trace(options?: TraceOptions | string) {
       includeRequestBody: true,
       includeResponseBody: true,
       includeErrorBody: true,
-      maxBodySize: 1000, // Default max body size
+      maxBodySize: 10000, // Default max body size (10KB)
       sensitiveFields: ['password', 'token', 'secret', 'key', 'authorization'],
     };
 
