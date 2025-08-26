@@ -39,6 +39,7 @@ export interface TraceOptions {
   businessImpact?: 'low' | 'medium' | 'high' | 'critical';
   userAffected?: boolean;
   customContext?: Record<string, any>;
+  nonBlockingAlerts?: boolean; // Make alerting non-blocking (default: true)
 
   // Tracing options
   spanName?: string;
@@ -80,6 +81,7 @@ export function Trace(options?: TraceOptions | string) {
       businessImpact: 'medium',
       userAffected: false,
       customContext: {},
+      nonBlockingAlerts: true, // Default to non-blocking alerts
       spanName: `${target.constructor.name}.${propertyName}`,
       includeArgs: true,
       includeUserContext: true,
@@ -329,15 +331,35 @@ export function Trace(options?: TraceOptions | string) {
           span.setAttributes(errorAttributes);
           spanData.attributes = { ...spanData.attributes, ...errorAttributes };
 
-          // Send unified alert (always enabled by default)
+          // Send unified alert (blocking or non-blocking based on config)
           if (finalOptions.alertOnError) {
-            await this.sendUnifiedAlert(
-              span,
-              error,
-              finalOptions,
-              target.constructor.name,
-              propertyName,
-            );
+            if (finalOptions.nonBlockingAlerts) {
+              // Fire-and-forget alerting to avoid blocking the response
+              Promise.resolve().then(() =>
+                this.sendUnifiedAlert(
+                  span,
+                  error,
+                  finalOptions,
+                  target.constructor.name,
+                  propertyName,
+                ).catch((alertError) => {
+                  logger.error('Background alert failed:', alertError);
+                }),
+              );
+            } else {
+              // Blocking alerting (for critical operations that must wait for alert confirmation)
+              try {
+                await this.sendUnifiedAlert(
+                  span,
+                  error,
+                  finalOptions,
+                  target.constructor.name,
+                  propertyName,
+                );
+              } catch (alertError) {
+                logger.error('Blocking alert failed:', alertError);
+              }
+            }
           }
 
           throw error;
