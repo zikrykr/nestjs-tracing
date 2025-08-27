@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2024-01-01
 
 ### Added
-- Initial release of @ce-service/core
+- Initial release of @zikrykr/nestjs-tracing
 - OpenTelemetry tracing setup with configuration
 - Tracing decorators (@Trace, @TraceAsync)
 - TracingService for manual span management
