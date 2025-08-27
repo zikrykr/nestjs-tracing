@@ -42,7 +42,7 @@ export class AppModule {}
 
 ```typescript
 // main.ts
-import { setupOpenTelemetry } from '@ce-service/core';
+import { setupOpenTelemetry } from '@zikrykr/nestjs-tracing';
 
 // Option 1: Use environment variables (simplest)
 setupOpenTelemetry(); // Automatically reads from env vars
@@ -73,7 +73,7 @@ bootstrap();
 
 ```typescript
 import { Injectable } from '@nestjs/common';
-import { Trace } from '@ce-service/core';
+import { Trace } from '@zikrykr/nestjs-tracing';
 
 @Injectable()
 export class UserService {
