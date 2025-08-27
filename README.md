@@ -1,4 +1,4 @@
-# @ce-service/core
+# @zikrykr/nestjs-tracing
 
 A comprehensive NestJS utility package that provides **core infrastructure components** for building robust, production-ready services. Currently includes tracing, monitoring, and alerting capabilities, with a modular architecture designed for future expansion.
 
@@ -16,9 +16,9 @@ A comprehensive NestJS utility package that provides **core infrastructure compo
 ### 1. Install the package
 
 ```bash
-npm install @ce-service/core
+npm install @zikrykr/nestjs-tracing
 # or
-yarn add @ce-service/core
+yarn add @zikrykr/nestjs-tracing
 ```
 
 ### 2. Setup Alert Module (Core Infrastructure)
